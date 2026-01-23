@@ -3,3 +3,97 @@ title: "HW2"
 format: html
 ---
 
+# FEMA National Risk Index scores
+
+### How do FEMA National Risk Index scores for counties in California compare to those in other states?
+
+Load the Libraries 
+```{r}
+library(tidyverse)
+library(dplyr)
+library(janitor)
+```
+
+Download Data 
+```{r}
+nat_ri <- read_csv(here::here("data", "National_Risk_Index_Counties.csv")) %>% 
+  clean
+```
+
+```{r}
+# Subset to only select columns 
+nat_ri_subset <- nat_ri %>% 
+  select(national_risk_index_id, population_2020, state_name_abbreviation, area_sq_mi, national_risk_index_value_composite, national_risk_index_score_composite,national_risk_index_state_percentile_composite, national_risk_index_rating_composite)
+
+# State, rating, count 
+st_ratings <- nat_ri_subset %>% 
+  count(state_name_abbreviation, national_risk_index_rating_composite, name = "count")
+```
+
+```{r}
+# Ratings = factor
+order <- c("Insufficient Data", "Very Low", "Relatively Low", "Relatively Moderate", "Relatively High", "Very High")
+
+nat_ri_subset$national_risk_index_rating_composite <- factor(nat_ri_subset$national_risk_index_rating_composite, 
+       levels = order)
+
+```
+
+Exploratory graphs 
+```{r}
+# Density ridges of percentile 
+library(ggridges)
+nat_ri_subset %>% 
+  ggplot(aes(y = state_name_abbreviation, 
+             x = national_risk_index_state_percentile_composite, 
+             fill = state_name_abbreviation)) + 
+  geom_density_ridges() + 
+  #scale_x_continuous(limits = c(0, ))+
+  theme(legend.position = "none") 
+  
+
+# Density ridges of value 
+nat_ri_subset %>% 
+  ggplot(aes(y = state_name_abbreviation, 
+             x = national_risk_index_value_composite)) + 
+  geom_density_ridges() + 
+  scale_x_continuous(limits = c(0,60000000)) +
+  theme(legend.position = "none") 
+  #gghighlight::gghighlight(state_name_abbreviation == "CA")
+
+
+# Boxplot of values 
+nat_ri_subset %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = national_risk_index_value_composite), outlier.shape = NA) + 
+  scale_x_continuous(limits = c(0,60000000))
+
+```
+
+
+DOES NOT SAY WHAT WE WANT 
+```{r, fig.width=8, fig.height=10}
+
+# Heatmap  
+st_ratings %>% 
+  filter(national_risk_index_rating_composite != "Insufficient Data") %>% 
+  ggplot() + 
+  geom_tile(aes(y = state_name_abbreviation, x = national_risk_index_rating_composite, fill = count)) +
+  #scale_fill_brewer(palette = "Dark2")
+  #scale_fill_manual(values = my_colors)
+  scale_fill_viridis_c() + 
+  scale_y_discrete() + 
+  labs(x = "National Risk Index Rating", 
+       y = "State", 
+       title = "National Risk Index Rating Counts Per State", 
+       legend = "Counts") + 
+  theme_minimal() + 
+  theme(
+    plot.margin = margin(t =10, r = 10, b = 10, l = 10),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+```
+
+
