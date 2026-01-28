@@ -1,0 +1,255 @@
+---
+title: "HW2"
+format: html
+---
+
+# FEMA National Risk Index scores
+
+### How do FEMA National Risk Index scores for counties in California compare to those in other states?
+
+Load the Libraries
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(janitor)
+```
+
+Download Data
+
+```{r}
+nat_ri <- read_csv(here::here("data", "National_Risk_Index_Counties.csv")) %>% 
+  clean_names()
+```
+National Risk Index Scores vs Rating vs Percentile 
+The National Risk Index (NRI) scores are calculated based on a combination of expected annual losses, social vulnerability, and community resilience. 
+
+These scores help in understanding the relative risk of a community to natural hazards. 
+
+The ratings and percentiles provide a more detailed view of the risk, indicating the likelihood and potential impact of natural hazards on a community. 
+
+```{r}
+# Subset to only select columns 
+nat_ri_subset <- nat_ri %>% 
+  select(national_risk_index_id, population_2020, state_name_abbreviation, area_sq_mi, national_risk_index_value_composite, national_risk_index_score_composite,national_risk_index_state_percentile_composite, national_risk_index_rating_composite) %>% 
+  rename(state = state_name_abbreviation)
+
+
+```
+
+```{r}
+# Ratings = factor
+order <- c("Insufficient Data", "Very Low", "Relatively Low", "Relatively Moderate", "Relatively High", "Very High")
+rev_order <- rev(order)
+
+nat_ri_subset$national_risk_index_rating_composite <- factor(nat_ri_subset$national_risk_index_rating_composite, 
+       levels = order)
+
+```
+
+Map making filtering
+
+Ratings for Social Vulnerability and Community Resilience have specific numerical boundaries based on national percentiles. The Ratings are divided into quintiles as described below:
+
+-   Very High: 80th to 100th percentiles
+
+-   Relatively High: 60th to 80th percentiles
+
+-   Relatively Moderate: 40th to 60th percentiles
+
+-   Relatively Low: 20th to 40th percentiles
+
+-   Very Low: 0th to 20th percentiles
+
+```{r}
+                                       )
+
+# Mean for each state 
+nat_risk_avg <- nat_ri_subset %>% 
+  filter(state %in% state.abb) %>% 
+  group_by(state) %>% 
+  summarise(
+    avg_score = mean(national_risk_index_score_composite, na.rm = TRUE), 
+    weighted_avg_score = weighted.mean(national_risk_index_score_composite, 
+                                       population_2020, na.rm = TRUE), 
+    avg_percentile = mean(national_risk_index_state_percentile_composite, 
+                          na.rm = TRUE)
+  ) %>% 
+  mutate(ranking = factor(
+    case_when(
+      avg_percentile >= 80 ~ "Very High", 
+      avg_percentile > 60 ~ "Relatively High",
+      avg_percentile > 40 ~ "Relatively Moderate", 
+      avg_percentile > 20 ~ "Relatively Low", 
+      avg_percentile > 0 ~ "Very Low",
+      TRUE ~ NA),
+    levels = c("Very High", "Relatively High", "Relatively Moderate", "Relatively Low","Very Low") 
+  ), 
+  opacity_val_percentile = scales::rescale(avg_percentile, to = c(0.3, 1)),
+  opacity_val_score = scales::rescale(weighted_avg_score, to = c(0.3, 1))
+  #weighted_avg_score / max(weighted_avg_score), 
+  #opacity_val_percentile = avg_percentile / max(avg_percentile)
+  ) 
+```
+
+Exploratory graphs - Distribution
+
+```{r}
+# Density ridges of percentile 
+library(ggridges)
+nat_ri_subset %>% 
+  ggplot(aes(y = state, 
+             x = national_risk_index_state_percentile_composite, 
+             fill = state)) + 
+  geom_density_ridges() + 
+  #scale_x_continuous(limits = c(0, ))+
+  theme(legend.position = "none") 
+  
+
+# Density ridges of value 
+nat_ri_subset %>% 
+  ggplot(aes(y = state, 
+             x = national_risk_index_value_composite)) + 
+  geom_density_ridges() + 
+  scale_x_continuous(limits = c(0,60000000)) +
+  theme(legend.position = "none") 
+  #gghighlight::gghighlight(state_name_abbreviation == "CA")
+
+
+# Boxplot of values 
+nat_ri_subset %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = national_risk_index_value_composite), outlier.shape = NA) + 
+  scale_x_continuous(limits = c(0,60000000))
+
+```
+
+DOES NOT SAY WHAT WE WANT
+
+```{r, fig.width=8, fig.height=10}
+
+# Heatmap  
+st_ratings %>% 
+  filter(national_risk_index_rating_composite != "Insufficient Data") %>% 
+  ggplot() + 
+  geom_tile(aes(y = state, x = national_risk_index_rating_composite, fill = count)) +
+  #scale_fill_brewer(palette = "Dark2")
+  #scale_fill_manual(values = my_colors)
+  scale_fill_viridis_c() + 
+  scale_y_discrete() + 
+  labs(x = "National Risk Index Rating", 
+       y = "State", 
+       title = "National Risk Index Rating Counts Per State", 
+       legend = "Counts") + 
+  theme_minimal() + 
+  theme(
+    plot.margin = margin(t =10, r = 10, b = 10, l = 10),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+```
+
+```{r}
+# Basic barplot 
+ranking_colors <- c("#d80a29", "#ef802b", "#f7d342", "#72ADD2", "#6E87CA")
+
+
+ggplot(nat_risk_avg) + 
+  geom_point(aes(y = reorder(state, weighted_avg_score), 
+                 x = weighted_avg_score, 
+                 color = ranking), 
+             size = 3) +
+  geom_linerange(aes(y = state, 
+                     xmin = 0, 
+                     xmax = weighted_avg_score, 
+                     color = ranking), 
+                 size = 0.5) + 
+  scale_color_manual(values = ranking_colors) + 
+  theme_minimal() + 
+  #scale_y_discrete(expand = expansion(add = c(0.5, 0.5))) +
+  scale_y_discrete(expand = expansion(mult = 0.02)) +
+  labs(title = "National Risk Index Scores per State", 
+       x = "Weighted Average NRI Score", 
+       y = "States", 
+       color = "Average Ranking") + 
+   theme(
+     axis.text.y = element_text(size = 10), 
+     axis.title = element_text(size = 14), 
+     plot.title = element_text(size = 15, 
+                               face = "bold"))
+
+ggsave(here::here("figs", "nri_lollipop_plot.png"), width = 7, height = 10)
+```
+
+Map of US States Avg NRI scores (weighted for population)
+```{r}
+library(usmap)
+
+# Join your scores with map data 
+ggplot(map_data) +
+  geom_sf(aes(fill = weighted_avg_score, 
+              #alpha = avg_percentile,
+              geometry = geom), 
+          color = "white", linewidth = 0.3) +
+  scale_fill_gradient(
+    high = '#d80a29',
+    low = '#6E87CA',
+    name = "Weighted Avg\nNRI Score"
+  ) +
+  scale_alpha_continuous(range = c(0.3, 1), name = "Avg Percentile") +
+  theme_void() +
+  labs(title = "National Risk Index by State")
+
+
+
+```
+
+
+```{r}
+
+st_ratings <- nat_ri_subset %>% 
+  count(state, national_risk_index_rating_composite, name = "count") %>%
+  group_by(state) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  ungroup()
+
+
+st_ratings$national_risk_index_rating_composite <- factor(st_ratings$national_risk_index_rating_composite,levels = rev(order))
+                      
+                                                          
+# label data                                                     
+label_data <- st_ratings %>% 
+  filter(state %in% state.abb, # filter for just states 
+         national_risk_index_rating_composite != "Insufficient Data") %>% # rid of Insufficient data 
+  group_by(state) %>% 
+  summarize(total=sum(percentage))
+
+
+# graph 
+st_ratings %>% 
+  filter(state %in% state.abb, # Filter for just states 
+         national_risk_index_rating_composite != "Insufficient Data") %>% # rid of Insufficient data 
+  ggplot(mapping = aes(x=as.factor(state), 
+                       y=percentage, 
+                       fill = national_risk_index_rating_composite)) + 
+  geom_bar(stat="identity") + 
+  geom_text(data = label_data, 
+            mapping = aes(x = state, y = total, label = state, fill = NULL), 
+            hjust = 0.5,
+            size = 2.5) +
+  ylim(-100,120) + 
+  scale_fill_manual(values = ranking_colors) + 
+  coord_polar(start = 0) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    #plot.margin = unit(rep(-1,4), "cm")
+  ) +
+    labs(fill = "NRI Rankings", 
+       title = "National Risk Index Ranking by State")
+
+```
+
