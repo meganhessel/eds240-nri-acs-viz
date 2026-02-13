@@ -1,0 +1,292 @@
+---
+title: "HW3"
+format: html
+---
+
+##  How does climate hazard risk exposure vary across racial / ethnic groups in California?
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(dplyr)
+library(sf)
+```
+
+
+```{r}
+
+#usethis::edit_r_environ()
+# 
+# 
+# #....Step 1a: see all available ACS variables + descriptions.....
+# acs_vars <- tidycensus::load_variables(year = 2023, dataset = "acs1")
+# 
+# #..............Step 1b: import race & ethnicity data.............
+# race_ethnicity <- tidycensus::get_acs(
+#   geography = "county",
+#   survey = "acs1",
+#   # NOTE: you may not end up using all these variables
+#   variables = c(
+#     "B01003_001",
+#     "B02001_002",
+#     "B02001_003",
+#     "B02001_004",
+#     "B02001_005",
+#     "B02001_006",
+#     "B02001_007",
+#     "B02001_008",
+#     "B03002_012",
+#     "B03002_002"
+#   ),
+#   state = "CA",
+#   year = 2023
+# ) |>
+#   # join variable descriptions (so we know what's what!)
+#   dplyr::left_join(acs_vars, by = dplyr::join_by(variable == name))
+# 
+# #.................Step 2: write ACS data to file.................
+# readr::write_csv(race_ethnicity,
+#                  here::here("data", "ACS-1yr-2023-county-race-ethnicity.csv"))
+
+#..................Step 3: read in your CSV files.................
+race_ethnicity <- readr::read_csv(here::here("data", "ACS-1yr-2023-county-race-ethnicity.csv"))
+
+
+nir_ca <- read_csv(here::here("data", "National_Risk_Index_Counties.csv")) %>% 
+  janitor::clean_names() %>% 
+  filter(state_name_abbreviation == "CA") # Filter for just CA 
+
+
+ca_counties_sf <- read_sf(here::here("data", "ca_counties", "CA_Counties.shp")) %>% 
+  janitor::clean_names() %>% 
+  rename(county_name = name)
+
+
+```
+
+
+Cleaning and Wrangling the data 
+```{r}
+# Clean race_ethnicity df 
+race_ethnicity_wider <- race_ethnicity %>% 
+  pivot_wider(names_from = label, # Making data tidy 
+            values_from = estimate) %>% 
+  group_by(NAME) %>%  # by county 
+  summarise(across(everything(), mean, na.rm = TRUE)) %>% 
+  separate_wider_delim(cols = NAME, # Make county_name col match the nir_ca 
+                       delim = " County, ", 
+                       names = c("county_name", "state"))
+
+# Filter nir_ca for necessary cols 
+nir_ca_subset<- nir_ca %>% 
+  select(county_name, national_risk_index_id, population_2020, state_name_abbreviation, area_sq_mi, national_risk_index_value_composite, national_risk_index_score_composite,national_risk_index_state_percentile_composite, national_risk_index_rating_composite) %>% 
+  rename(state = state_name_abbreviation)
+
+
+# join race_ethnicity_wider and nir_ca 
+nir_race_joined_df <- left_join(race_ethnicity_wider, nir_ca_subset, by = 'county_name')
+
+
+
+unique(race_ethnicity_wider$county_name) # 42 counties 
+unique(nir_ca_subset$county_name) # 58 counties 
+
+
+# remove `Estimate!!Total:!!` from the column names 
+colnames(nir_race_joined_df) <- gsub("Estimate!!Total:!!", "", colnames(nir_race_joined_df))
+
+```
+
+Proportion of races in each county 
+```{r}
+# Select race columns 
+subset <- nir_race_joined_df %>% 
+  select(`Estimate!!Total`:`Hispanic or Latino:`)
+
+# Adding proportions in subset 
+for(col_name in names(subset)) {
+  if(col_name != "Estimate!!Total") {
+     new_col_name <- paste0(col_name, "_prop") # Change col names 
+     subset[new_col_name] <- subset[col_name] / subset$`Estimate!!Total` # race proportion = race_pop / county's total population
+  }
+}
+
+# Grab just columns with proportions and add them to the OG dataframe 
+race_proportions <- subset %>% 
+  select(ends_with("_prop"))
+
+nir_race_joined_df <- cbind(nir_race_joined_df, race_proportions) # Put dfs together 
+
+```
+
+
+```{r}
+# join to CA_counties sf 
+#nir_race_joined_sf <- left_join(nir_race_joined_df, ca_counties_sf, by = 'county_name')
+
+#nir_race_joined_sf <- st_as_sf(nir_race_joined_sf)
+```
+
+```{r}
+
+nir_race_joined_df
+
+
+nir_race_longer <- nir_race_joined_df %>% 
+  pivot_longer(
+            cols = `White alone`:`Hispanic or Latino:`, 
+            names_to = "races", 
+            values_to = "race_population")
+  
+  
+nir_proportion <- nir_race_longer %>% 
+  select(county_name, race_population, national_risk_index_score_composite) %>% 
+  group_by(county_name) %>% 
+  mutate(race_prop = race_population / sum(race_population), 
+         race_precent = race_prop * 100) 
+
+
+nir_proportion2 <- nir_race_joined_df %>% 
+  pivot_longer(
+           cols = `White alone_prop`:`Hispanic or Latino:_prop`, 
+          names_to = "races_prop", 
+           values_to = "race_pop_prop") %>% 
+    select(county_name, races_prop,race_pop_prop, national_risk_index_score_composite) %>% 
+  mutate(race_pop_percent = race_pop_prop * 100)
+
+
+
+```
+
+
+Exploratory plots 
+```{r}
+b_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `Black or African American alone`, y = county_name)) + 
+  labs(x = "Black")
+
+i_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `American Indian and Alaska Native alone`, y = county_name)) + 
+  labs(x = "American Indian")
+
+h_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `Hispanic or Latino:`, y = county_name)) + 
+  labs(x = "Hispanic")
+
+w_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `White alone`, y = county_name)) + 
+  labs(x = "White")
+
+pi_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `Native Hawaiian and Other Pacific Islander alone`, y = county_name)) + 
+  labs(x = "Pacific Islander")
+
+o_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `Some Other Race alone`, y = county_name)) + 
+  labs(x = "Other")
+
+nh_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `Not Hispanic or Latino:`, y = county_name)) + 
+  labs(x = "Not Hispanic")
+
+
+nv_plot <- ggplot(nir_race_joined_df) + 
+  geom_col(aes(x = `national_risk_index_value_composite`, y = county_name)) + 
+  labs(x = "NIR Value")
+
+ns_plot <- ggplot(nir_race_joined_df) + 
+  geom_point(aes(x = `national_risk_index_score_composite`, y = county_name)) + 
+  geom_linerange(aes(y = county_name, xmax = national_risk_index_score_composite, xmin = 0))+
+  labs(x = "NIR Score")
+
+
+n | w | b
+nv | ns
+
+b|ns | w
+```
+Tried lollipop 
+```{r}
+ggplot(nir_race_joined_df) + 
+  geom_point(aes(x = `national_risk_index_score_composite`, y = county_name), 
+             color = "blue") + 
+  geom_point(aes(x = `Estimate!!Total:!!Black or African American alone`, y = county_name), 
+             color = "Red") + 
+  geom_linerange(aes(y = county_name, xmin = `national_risk_index_score_composite`, xmax = `Estimate!!Total:!!Black or African American alone`))
+
+```
+
+
+```{r}
+ggplot(nir_race_joined_df) + 
+  geom_bin2d(aes(x = `Black or African American alone`, 
+                 y = `national_risk_index_score_composite`))
+
+```
+```{r}
+ggplot(nir_race_joined_sf) + 
+  geom_sf(aes(fill = `national_risk_index_score_composite`)) + 
+  scale_fill_viridis_c(option = "viridis", direction = -1) +
+  theme_void() 
+
+
+ggplot(nir_race_joined_sf) + 
+  geom_sf(aes(fill = `Black or African American alone_prop`)) + 
+  scale_fill_viridis_c(option = "viridis", direction = -1) +
+  theme_void()
+
+ggplot(nir_race_joined_sf) + 
+  geom_sf(aes(fill = `Black or African American alone`)) + 
+  scale_fill_viridis_c(option = "viridis", direction = -1) +
+  theme_void()
+
+
+ggplot(nir_race_joined_sf) + 
+  geom_sf(aes(fill = `White alone_prop`)) + 
+  scale_fill_viridis_c(option = "viridis", direction = -1) +
+  theme_void()
+
+ggplot(nir_race_joined_sf) + 
+  geom_sf(aes(fill = `White alone`)) + 
+  scale_fill_viridis_c(option = "viridis", direction = -1) +
+  theme_void()
+
+```
+
+```{r}
+ggplot(nir_race_longer) + 
+  geom_tile(aes(y = county_name, x = races_prop, fill = race_pop_prop)) + 
+  theme(axis.text.x = element_text(size = 5, angle = 45))
+
+
+ggplot(nir_race_longer) + 
+  geom_tile(aes(y = county_name, x = races_prop, fill = national_risk_index_score_composite)) + 
+  theme(axis.text.x = element_text(size = 5, angle = 45))
+
+
+```
+
+```{r}
+ggplot(nir_race_longer, aes(y = county_name, 
+                            x = sort(national_risk_index_score_composite), 
+                            fill = races)) +
+  geom_col(width = 25 / 30) +
+  theme_minimal() +
+  labs(x = "National Risk Index Score", 
+       y = "California Counties", 
+       fill = "Racial & Ethnic Groups")
+
+
+
+ggplot(nir_proportion, aes(y = reorder(county_name, national_risk_index_score_composite), 
+                            x = national_risk_index_score_composite, 
+                            fill = race_precent)) +
+  geom_col(width = 25 / 30) +
+  theme_minimal() +
+  labs(x = "National Risk Index Score", 
+       y = "California Counties", 
+       fill = "Racial & Ethnic Groups")
+
+
+```
+

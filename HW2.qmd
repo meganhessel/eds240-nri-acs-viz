@@ -9,7 +9,7 @@ date: January 27, 2026
 
 # FEMA National Risk Index scores
 
-### Understanding how FEMA National Risk Index scores for counties in California compare to those in other states. 
+### Understanding how FEMA National Risk Index scores for counties in California compare to those in other states.
 
 ```{r}
 #| output: false
