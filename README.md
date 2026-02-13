@@ -16,13 +16,14 @@ This repository uses data visualization to understand:
 
 ## File Structure
 
-Final data visualizations are accomplished within the `HW2.qmd` and `HW3.qmd` which are located in the root. The finalized visualizations are also saved as pngs in the `fig` folder. Also in the root is the README and the unpolished, preliminary data exploration and visualization quarto documents called `HW#_draft.qmd`. There is **no** data within this repository.
+Final data visualizations are accomplished within the `HW2.qmd` and `HW3.qmd` (and there html and pdf form) which are located in the root. The finalized visualizations are also saved as pngs in the `fig` folder. Also in the root is the README and the unpolished, preliminary data exploration and visualization quarto documents called `HW#_draft.qmd`. There is **no** data within this repository.
 
 ```         
 eds240-nri-acs-viz
 ├─ figs
 │  ├─ nri_lollipop_plot.png
-│  └─ nri_stackedPropBar_plot.png
+│  ├─ nri_stackedPropBar_plot.png
+│  └─ CA_NRI_racial_prop_plot.png
 ├─ HW2_draft.qmd
 ├─ HW2.qmd
 ├─ HW3_draft.qmd
